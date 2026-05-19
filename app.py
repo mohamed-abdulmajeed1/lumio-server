@@ -1,14 +1,11 @@
-import os
 import time
-import threading
 import requests
 from flask import Flask, jsonify
 
 app = Flask(__name__)
 
-# بيانات Telegram
-BOT_TOKEN = os.getenv("8702482925:AAHxXWBrvDzFVpwW13r_O4Id0jyc0jUa2wM")
-CHAT_ID = os.getenv("-5124378185")
+BOT_TOKEN = "8702482925:AAHxXWBrvDzFVpwW13r_O4Id0jyc0jUa2wM"
+CHAT_ID = "-5124378185"
 
 last_heartbeat_time = time.time()
 is_power_on = True
@@ -24,39 +21,38 @@ def send_telegram_alert(message):
     try:
         requests.post(url, data=data)
     except Exception as e:
-        print("Error sending message:", e)
-
-
-def monitor_power():
-    global last_heartbeat_time, is_power_on
-
-    while True:
-        current_time = time.time()
-        time_since_last_ping = current_time - last_heartbeat_time
-
-        if is_power_on and time_since_last_ping > TIMEOUT_LIMIT:
-            is_power_on = False
-            send_telegram_alert("الكهرباء مقطوعة")
-
-        elif not is_power_on and time_since_last_ping <= TIMEOUT_LIMIT:
-            is_power_on = True
-            send_telegram_alert("الحمد لله الكهرباء رجعت")
-
-        time.sleep(10)
+        print("Error:", e)
 
 
 @app.route("/heartbeat", methods=["POST"])
-def receive_heartbeat():
+def heartbeat():
     global last_heartbeat_time
     last_heartbeat_time = time.time()
-    return jsonify({"status": "success"}), 200
+    return jsonify({"status": "success"})
 
 
-@app.route("/", methods=["GET"])
+@app.route("/check", methods=["GET"])
+def check():
+    global last_heartbeat_time, is_power_on
+
+    current_time = time.time()
+    diff = current_time - last_heartbeat_time
+
+    if is_power_on and diff > TIMEOUT_LIMIT:
+        is_power_on = False
+        send_telegram_alert("الكهرباء مقطوعة")
+
+    elif not is_power_on and diff <= TIMEOUT_LIMIT:
+        is_power_on = True
+        send_telegram_alert("الحمد لله الكهرباء رجعت")
+
+    return jsonify({
+        "status": "checked",
+        "power": "ON" if is_power_on else "OFF",
+        "last_seen": int(diff)
+    })
+
+
+@app.route("/")
 def home():
-    status = "ON" if is_power_on else "OFF"
-    return f"<h1>Lumio Server</h1><p>Status: {status}</p>"
-
-
-# تشغيل الـ thread
-threading.Thread(target=monitor_power, daemon=True).start()
+    return f"Lumio Server - {'ON' if is_power_on else 'OFF'}"
