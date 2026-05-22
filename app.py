@@ -5,93 +5,91 @@ from flask import Flask, jsonify
 
 app = Flask(__name__)
 
+# إعدادات البوت والتلغرام
 BOT_TOKEN = "8702482925:AAHxXWBrvDzFVpwW13r_O4Id0jyc0jUa2wM"
 CHAT_ID = "-5124378185"
 
+# المتغيرات العامة
 last_heartbeat_time = time.time()
 is_power_on = True
 TIMEOUT = 45
+has_received_heartbeat = False  # الإضافة الجديدة لمنع الإنذار الكاذب عند بدء التشغيل
 
 
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
     data = {
         "chat_id": CHAT_ID,
         "text": message
     }
-
     try:
         requests.post(url, data=data, timeout=10)
         print("Message sent:", message)
-
     except Exception as e:
         print("Telegram Error:", e)
 
 
-#  داله  المراقبة 
+# دالة المراقبة في الخلفية
 def monitor_power():
-
-    global last_heartbeat_time
     global is_power_on
+    global last_heartbeat_time
+    global has_received_heartbeat
 
     while True:
+        # لا تفحص قبل أول heartbeat لمنع البلاغات الخاطئة
+        if not has_received_heartbeat:
+            print("Waiting for first heartbeat...")
+            time.sleep(5)
+            continue
 
         diff = time.time() - last_heartbeat_time
-
         print("Checking...", int(diff), "seconds")
 
         # الكهرباء انقطعت
         if is_power_on and diff > TIMEOUT:
-
             is_power_on = False
-
-            send_telegram_alert("الكهرباء قطعت ")
-
+            send_telegram_alert("🚨 الكهرباء مقطوعة")
             print("Power OFF")
 
         # الكهرباء رجعت
         elif not is_power_on and diff <= TIMEOUT:
-
             is_power_on = True
-
-            send_telegram_alert(" الحمد لله الكهرباء جات ")
-
+            send_telegram_alert("✅ الكهرباء رجعت")
             print("Power ON")
 
         time.sleep(5)
 
 
+# الـ Route الخاص باستقبال نبضات القلب
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
-
     global last_heartbeat_time
+    global has_received_heartbeat
 
     last_heartbeat_time = time.time()
+    has_received_heartbeat = True  # تفعيل الفحص بعد وصول أول إشارة بنجاح
 
     print("Heartbeat received")
-
     return jsonify({"status": "success"})
 
 
+# الصفحة الرئيسية لعرض الحالة الحالية
 @app.route("/")
 def home():
-
     diff = int(time.time() - last_heartbeat_time)
-
     return jsonify({
         "power": "ON" if is_power_on else "OFF",
-        "last_seen": diff
+        "has_started_monitoring": has_received_heartbeat,
+        "last_seen_seconds_ago": diff if has_received_heartbeat else "No heartbeat yet"
     })
 
 
-# backgraond mentoring
+# تشغيل دالة المراقبة في Thread منفصل في الخلفية
 monitor_thread = threading.Thread(target=monitor_power)
-
 monitor_thread.daemon = True
-
 monitor_thread.start()
 
 
 if __name__ == "__main__":
+    # تشغيل السيرفر ليقبل الاتصالات الخارجية عبر منفذ 5000
     app.run(host="0.0.0.0", port=5000)
