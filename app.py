@@ -39,13 +39,13 @@ def update_power_status():
     # الكهرباء انقطعت
     if is_power_on and diff > TIMEOUT:
         is_power_on = False
-        send_telegram_alert("🚨 الكهرباء مقطوعة")
+        send_telegram_alert("الكهرباء قطعت")
         print("Power OFF status updated")
 
     # الكهرباء رجعت
     elif not is_power_on and diff <= TIMEOUT:
         is_power_on = True
-        send_telegram_alert("✅ الكهرباء رجعت")
+        send_telegram_alert("الكهرباء جات الحمد لله")
         print("Power ON status updated")
 
 
