@@ -1,5 +1,4 @@
 import time
-import threading
 import requests
 from flask import Flask, jsonify
 
@@ -9,13 +8,10 @@ app = Flask(__name__)
 BOT_TOKEN = "8702482925:AAHxXWBrvDzFVpwW13r_O4Id0jyc0jUa2wM"
 CHAT_ID = "-5124378185"
 
-# المتغيرات العامة (Global variables)
-last_heartbeat_time = time.time()
-TIMEOUT = 45
-has_received_heartbeat = False  # الانتظار حتى أول نبضة لمنع الإنذار الكاذب عند الإقلاع
-
-# جعلنا الحالة الافتراضية False حتى يرسل السيرفر تنبيه "الكهرباء رجعت" فور وصول أول نبضة
+# المتغيرات العامة
+last_heartbeat_time = None  # نبدأ بـ None لمعرفة هل استلمنا أي شيء أم لا
 is_power_on = False  
+TIMEOUT = 45
 
 
 def send_telegram_alert(message):
@@ -31,67 +27,66 @@ def send_telegram_alert(message):
         print("Telegram Error:", e)
 
 
-# دالة المراقبة في الخلفية
-def monitor_power():
-    global is_power_on
-    global last_heartbeat_time
-    global has_received_heartbeat
+# دالة ذكية لتحديث الحالة يتم استدعاؤها عند أي طلب دون الحاجة لـ Thread
+def update_power_status():
+    global is_power_on, last_heartbeat_time
+    
+    if last_heartbeat_time is None:
+        return  # لم تصل أي نبضة بعد منذ إقلاع السيرفر الحالي
 
-    while True:
-        # لا تفحص قبل أول heartbeat لمنع البلاغات الخاطئة
-        if not has_received_heartbeat:
-            print("Waiting for first heartbeat...")
-            time.sleep(5)
-            continue
+    diff = time.time() - last_heartbeat_time
 
-        diff = time.time() - last_heartbeat_time
-        print("Checking...", int(diff), "seconds")
+    # الكهرباء انقطعت
+    if is_power_on and diff > TIMEOUT:
+        is_power_on = False
+        send_telegram_alert("🚨 الكهرباء مقطوعة")
+        print("Power OFF status updated")
 
-        # الكهرباء انقطعت
-        if is_power_on and diff > TIMEOUT:
-            is_power_on = False
-            send_telegram_alert("🚨 الكهرباء مقطوعة")
-            print("Power OFF")
-
-        # الكهرباء رجعت (ستتحقق هنا فور وصول أول نبضة بعد إقلاع السيرفر)
-        elif not is_power_on and diff <= TIMEOUT:
-            is_power_on = True
-            send_telegram_alert("✅ الكهرباء رجعت")
-            print("Power ON")
-
-        time.sleep(5)
+    # الكهرباء رجعت
+    elif not is_power_on and diff <= TIMEOUT:
+        is_power_on = True
+        send_telegram_alert("✅ الكهرباء رجعت")
+        print("Power ON status updated")
 
 
-# الـ Route الخاص باستقبال نبضات القلب
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
     global last_heartbeat_time
-    global has_received_heartbeat
-
+    
     last_heartbeat_time = time.time()
-    has_received_heartbeat = True  # تفعيل الفحص وبدء المراقبة فوراً
+    
+    # تحديث الحالة فوراً عند استقبال النبضة لمعرفة هل رجعت الكهرباء أم لا
+    update_power_status()
 
     print("Heartbeat received")
     return jsonify({"status": "success"})
 
 
-# الصفحة الرئيسية لعرض الحالة الحالية للمشروع
 @app.route("/")
 def home():
+    global is_power_on
+    
+    # تحديث الحالة فوراً عند طلب الصفحة لرؤية الحالة الحقيقية
+    update_power_status()
+
+    if last_heartbeat_time is None:
+        return jsonify({
+            "power": "UNKNOWN",
+            "has_started_monitoring": False,
+            "last_seen_seconds_ago": "No heartbeat yet"
+        })
+
     diff = int(time.time() - last_heartbeat_time)
+    
+    # تأكيد إضافي في حال انتهى وقت المهلة أثناء طلب الصفحة
+    current_power = "ON" if (diff <= TIMEOUT and is_power_on) else "OFF"
+
     return jsonify({
-        "power": "ON" if is_power_on else "OFF",
-        "has_started_monitoring": has_received_heartbeat,
-        "last_seen_seconds_ago": diff if has_received_heartbeat else "No heartbeat yet"
+        "power": current_power,
+        "has_started_monitoring": True,
+        "last_seen_seconds_ago": diff
     })
 
 
-# تشغيل دالة المراقبة في Thread منفصل في الخلفية
-monitor_thread = threading.Thread(target=monitor_power)
-monitor_thread.daemon = True
-monitor_thread.start()
-
-
 if __name__ == "__main__":
-    # تشغيل السيرفر ليقبل الاتصالات الخارجية عبر منفذ 5000
     app.run(host="0.0.0.0", port=5000)
