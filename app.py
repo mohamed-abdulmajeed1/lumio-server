@@ -10,44 +10,40 @@ CHAT_ID = "-5124378185"
 
 last_heartbeat_time = time.time()
 is_power_on = True
-TIMEOUT_LIMIT = 45
+TIMEOUT = 45
 
-def send_telegram_alert(message):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    data = {"chat_id": CHAT_ID, "text": message}
-    try:
-        requests.post(url, data=data)
-    except Exception as e:
-        print("Error:", e)
+def send(msg):
+    requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data={"chat_id": CHAT_ID, "text": msg}
+    )
 
-# دالة الفحص التلقائي التي ستعمل في الخلفية
-def auto_check_power():
-    global last_heartbeat_time, is_power_on
-    
-    current_time = time.time()
-    diff = current_time - last_heartbeat_time
+#  شرط النبضات
+def monitor():
+    global is_power_on, last_heartbeat_time
 
-    if is_power_on and diff > TIMEOUT_LIMIT:
+    diff = time.time() - last_heartbeat_time
+
+    #  انقطاع الكهرباء
+    if is_power_on and diff > TIMEOUT:
         is_power_on = False
-        send_telegram_alert("🚨 الكهرباء مقطوعة!")
-        print("Alert Sent: Power OFF")
+        send(" الكهرباء قطعت")
 
-    elif not is_power_on and diff <= TIMEOUT_LIMIT:
+    #  رجوع الكهرباء
+    elif not is_power_on and diff <= TIMEOUT:
         is_power_on = True
-        send_telegram_alert("✅ الحمد لله الكهرباء رجعت")
-        print("Alert Sent: Power ON")
+        send("الحمد لله الكهرباء جات")
 
-# إعداد الـ Scheduler ليعمل كل 5 ثوانٍ ويفحص الحالة تلقائياً
 scheduler = BackgroundScheduler()
-scheduler.add_job(func=auto_check_power, trigger="interval", seconds=5)
+scheduler.add_job(monitor, "interval", seconds=5)
 scheduler.start()
 
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
     global last_heartbeat_time
     last_heartbeat_time = time.time()
-    return jsonify({"status": "success"})
+    return {"status": "ok"}
 
 @app.route("/")
 def home():
-    return f"Lumio Server - {'ON' if is_power_on else 'OFF'}"
+    return {"power": "ON" if is_power_on else "OFF"}
