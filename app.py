@@ -1,7 +1,7 @@
 import time
+import threading
 import requests
 from flask import Flask, jsonify
-from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
 
@@ -12,38 +12,86 @@ last_heartbeat_time = time.time()
 is_power_on = True
 TIMEOUT = 45
 
-def send(msg):
-    requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        data={"chat_id": CHAT_ID, "text": msg}
-    )
 
-#  شرط النبضات
-def monitor():
-    global is_power_on, last_heartbeat_time
+def send_telegram_alert(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
-    diff = time.time() - last_heartbeat_time
+    data = {
+        "chat_id": CHAT_ID,
+        "text": message
+    }
 
-    #  انقطاع الكهرباء
-    if is_power_on and diff > TIMEOUT:
-        is_power_on = False
-        send(" الكهرباء قطعت")
+    try:
+        requests.post(url, data=data, timeout=10)
+        print("Message sent:", message)
 
-    #  رجوع الكهرباء
-    elif not is_power_on and diff <= TIMEOUT:
-        is_power_on = True
-        send("الحمد لله الكهرباء جات")
+    except Exception as e:
+        print("Telegram Error:", e)
 
-scheduler = BackgroundScheduler()
-scheduler.add_job(monitor, "interval", seconds=5)
-scheduler.start()
+
+#  داله  المراقبة 
+def monitor_power():
+
+    global last_heartbeat_time
+    global is_power_on
+
+    while True:
+
+        diff = time.time() - last_heartbeat_time
+
+        print("Checking...", int(diff), "seconds")
+
+        # الكهرباء انقطعت
+        if is_power_on and diff > TIMEOUT:
+
+            is_power_on = False
+
+            send_telegram_alert("الكهرباء قطعت ")
+
+            print("Power OFF")
+
+        # الكهرباء رجعت
+        elif not is_power_on and diff <= TIMEOUT:
+
+            is_power_on = True
+
+            send_telegram_alert(" الحمد لله الكهرباء جات ")
+
+            print("Power ON")
+
+        time.sleep(5)
+
 
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
+
     global last_heartbeat_time
+
     last_heartbeat_time = time.time()
-    return {"status": "ok"}
+
+    print("Heartbeat received")
+
+    return jsonify({"status": "success"})
+
 
 @app.route("/")
 def home():
-    return {"power": "ON" if is_power_on else "OFF"}
+
+    diff = int(time.time() - last_heartbeat_time)
+
+    return jsonify({
+        "power": "ON" if is_power_on else "OFF",
+        "last_seen": diff
+    })
+
+
+# backgraond mentoring
+monitor_thread = threading.Thread(target=monitor_power)
+
+monitor_thread.daemon = True
+
+monitor_thread.start()
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
