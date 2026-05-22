@@ -9,11 +9,13 @@ app = Flask(__name__)
 BOT_TOKEN = "8702482925:AAHxXWBrvDzFVpwW13r_O4Id0jyc0jUa2wM"
 CHAT_ID = "-5124378185"
 
-# المتغيرات العامة
+# المتغيرات العامة (Global variables)
 last_heartbeat_time = time.time()
-is_power_on = True
 TIMEOUT = 45
-has_received_heartbeat = False  # الإضافة الجديدة لمنع الإنذار الكاذب عند بدء التشغيل
+has_received_heartbeat = False  # الانتظار حتى أول نبضة لمنع الإنذار الكاذب عند الإقلاع
+
+# جعلنا الحالة الافتراضية False حتى يرسل السيرفر تنبيه "الكهرباء رجعت" فور وصول أول نبضة
+is_power_on = False  
 
 
 def send_telegram_alert(message):
@@ -51,7 +53,7 @@ def monitor_power():
             send_telegram_alert("🚨 الكهرباء مقطوعة")
             print("Power OFF")
 
-        # الكهرباء رجعت
+        # الكهرباء رجعت (ستتحقق هنا فور وصول أول نبضة بعد إقلاع السيرفر)
         elif not is_power_on and diff <= TIMEOUT:
             is_power_on = True
             send_telegram_alert("✅ الكهرباء رجعت")
@@ -67,13 +69,13 @@ def heartbeat():
     global has_received_heartbeat
 
     last_heartbeat_time = time.time()
-    has_received_heartbeat = True  # تفعيل الفحص بعد وصول أول إشارة بنجاح
+    has_received_heartbeat = True  # تفعيل الفحص وبدء المراقبة فوراً
 
     print("Heartbeat received")
     return jsonify({"status": "success"})
 
 
-# الصفحة الرئيسية لعرض الحالة الحالية
+# الصفحة الرئيسية لعرض الحالة الحالية للمشروع
 @app.route("/")
 def home():
     diff = int(time.time() - last_heartbeat_time)
